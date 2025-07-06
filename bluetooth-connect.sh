@@ -2,6 +2,8 @@
 #
 # A wofi-based menu for bluetoothctl.
 #
+# v2 with corrected list_devices function to prevent hanging processes.
+#
 
 # Function to show a notification
 notify() {
@@ -28,27 +30,31 @@ toggle_power() {
     fi
 }
 
-# Get a list of devices with their connection status
+# Get a list of devices with their connection status (CORRECTED VERSION)
 list_devices() {
-    # Get basic device list
-    devices=$(bluetoothctl devices)
+    # Get all known devices
+    all_devices_list=$(bluetoothctl devices)
+    # Get ONLY the MAC addresses of currently connected devices.
+    connected_macs_list=$(bluetoothctl devices Connected | awk '{print $2}')
 
-    # Get list of currently connected device MACs
-    connected_macs=$(bluetoothctl info | grep "Device" | awk '{print $2}')
-
-    # Loop through devices and add a connection icon
+    # Loop through all devices and check if their MAC is in the connected list
     while read -r line; do
+        # Skips empty lines
+        if [ -z "$line" ]; then continue; fi
+
         mac=$(echo "$line" | awk '{print $2}')
         name=$(echo "$line" | sed "s/Device $mac //g")
-        icon="󰂯" # Connected icon
-        
-        if ! echo "$connected_macs" | grep -q "$mac"; then
+
+        if echo "$connected_macs_list" | grep -qF "$mac"; then
+            icon="󰂯" # Connected icon
+        else
             icon="󰂲" # Disconnected icon
         fi
         
         echo "$icon $name ($mac)"
-    done <<< "$devices"
+    done <<< "$all_devices_list"
 }
+
 
 # Main menu for actions
 main_menu() {
@@ -60,7 +66,6 @@ main_menu() {
     fi
 
     # Wofi menu
-    # Options are separated by newlines
     options="$power_option\n$scan_option\n󰂱 Connect\n󰂦 Disconnect\nTrusted Devices"
     
     selected_action=$(echo -e "$options" | wofi --dmenu --prompt "Bluetooth Menu")
@@ -108,7 +113,8 @@ connect_menu() {
 
 # Menu to select a device to disconnect from
 disconnect_menu() {
-    selection=$(list_devices | grep "󰂯" | wofi --dmenu --prompt "Disconnect from:") # Only show connected
+    # We grep for the connected icon to ensure we only list devices that can be disconnected.
+    selection=$(list_devices | grep "󰂯" | wofi --dmenu --prompt "Disconnect from:")
     [ -z "$selection" ] && exit 0
 
     mac=$(echo "$selection" | grep -oE "([0-9A-F]{2}:){5}[0-9A-F]{2}")
@@ -135,7 +141,6 @@ trust_menu() {
         notify "Failed to trust $name."
     fi
 }
-
 
 # Run the main menu
 main_menu
